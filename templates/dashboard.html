@@ -1,0 +1,360 @@
+                <span class="status-indicator ${adviserRunning ? 'status-running' : 'status-stopped'}"></span>
+                ${adviserRunning ? 'Running' : 'Stopped'}
+            `;
+
+            // Calculate success rate
+            const totalCompleted = (tasks.completed || 0) + (tasks.failed || 0);
+            const successRate = totalCompleted > 0 ? 
+                Math.round(((tasks.completed || 0) / totalCompleted) * 100) : 0;
+            document.getElementById('success-rate').textContent = successRate + '%';
+
+            // Update workers list
+            updateWorkersList(data.workers || []);
+
+            // Update progress chart
+            updateProgressChart(tasks);
+
+            // Load recent tasks
+            loadRecentTasks();
+        }
+
+        function updateWorkersList(workers) {
+            const workersList = document.getElementById('workers-list');
+            
+            if (workers.length === 0) {
+                workersList.innerHTML = '<div class="worker-item">No workers configured</div>';
+                return;
+            }
+
+            workersList.innerHTML = workers.map(worker => `
+                <div class="worker-item">
+                    <div>
+                        <strong>${worker.id}</strong>
+                        <div style="font-size: 0.9em; color: #666;">
+                            ${worker.current_task ? `Working on: ${worker.current_task}` : 'Idle'}
+                        </div>
+                        <div style="font-size: 0.8em; color: #999;">
+                            Completed: ${worker.performance_metrics?.tasks_completed || 0} | 
+                            Failed: ${worker.performance_metrics?.tasks_failed || 0}
+                        </div>
+                    </div>
+                    <span class="status-indicator ${worker.running ? 'status-running' : 'status-stopped'}"></span>
+                </div>
+            `).join('');
+        }
+
+        function updateProgressChart(tasks) {
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            
+            if (progressChart) {
+                progressChart.destroy();
+            }
+
+            const taskData = {
+                labels: ['Pending', 'In Progress', 'Completed', 'Failed'],
+                datasets: [{
+                    data: [
+                        tasks.pending || 0,
+                        tasks['in_progress'] || 0,
+                        tasks.completed || 0,
+                        tasks.failed || 0
+                    ],
+                    backgroundColor: [
+                        '#ff9800',
+                        '#2196f3',
+                        '#4caf50',
+                        '#f44336'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            };
+
+            progressChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: taskData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadRecentTasks() {
+            try {
+                const response = await fetch('/api/tasks');
+                const tasks = await response.json();
+                
+                const recentTasksContainer = document.getElementById('recent-tasks');
+                
+                if (tasks.length === 0) {
+                    recentTasksContainer.innerHTML = '<div class="task-item">No tasks yet. Create your first task!</div>';
+                    return;
+                }
+
+                // Sort by creation date (most recent first)
+                tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                
+                recentTasksContainer.innerHTML = tasks.slice(0, 10).map(task => `
+                    <div class="task-item" onclick="showTaskDetails('${task.id}')">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div style="flex: 1;">
+                                <div><strong>${task.description}</strong></div>
+                                <div style="font-size: 0.9em; color: #666; margin: 5px 0;">
+                                    Commands: ${task.commands.length} | 
+                                    Priority: ${task.priority} | 
+                                    Created: ${new Date(task.created_at).toLocaleString()}
+                                </div>
+                                ${task.assigned_agent ? `<div style="font-size: 0.8em; color: #999;">Worker: ${task.assigned_agent}</div>` : ''}
+                                ${task.error ? `<div style="font-size: 0.8em; color: #f44336; margin-top: 5px;">Error: ${task.error}</div>` : ''}
+                            </div>
+                            <span class="task-status ${task.status.replace('_', '-')}">${task.status.replace('_', ' ')}</span>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading tasks:', error);
+                document.getElementById('recent-tasks').innerHTML = '<div class="task-item">Error loading tasks</div>';
+            }
+        }
+
+        async function showTaskDetails(taskId) {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}`);
+                const task = await response.json();
+                
+                let detailsText = `Task Details: ${task.description}\n\n`;
+                detailsText += `ID: ${task.id}\n`;
+                detailsText += `Status: ${task.status.replace('_', ' ')}\n`;
+                detailsText += `Priority: ${task.priority}\n`;
+                detailsText += `Created: ${new Date(task.created_at).toLocaleString()}\n`;
+                if (task.assigned_agent) detailsText += `Assigned Worker: ${task.assigned_agent}\n`;
+                if (task.started_at) detailsText += `Started: ${new Date(task.started_at).toLocaleString()}\n`;
+                if (task.completed_at) detailsText += `Completed: ${new Date(task.completed_at).toLocaleString()}\n`;
+                
+                detailsText += `\nCommands:\n`;
+                task.commands.forEach((cmd, i) => {
+                    detailsText += `${i + 1}. ${cmd}\n`;
+                });
+                
+                if (task.error) {
+                    detailsText += `\nError: ${task.error}\n`;
+                }
+                
+                if (task.result) {
+                    detailsText += `\nExecution Results:\n${JSON.stringify(task.result, null, 2)}\n`;
+                }
+                
+                alert(detailsText);
+                
+            } catch (error) {
+                alert('Error loading task details: ' + error.message);
+            }
+        }
+
+        // System control functions
+        async function startSystem() {
+            try {
+                const response = await fetch('/api/system/start', { method: 'POST' });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('System started successfully!', 'success');
+                    refreshStatus();
+                } else {
+                    showAlert('Failed to start system: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error starting system: ' + error.message, 'error');
+            }
+        }
+
+        async function stopSystem() {
+            if (!confirm('Are you sure you want to stop the system?')) return;
+            
+            try {
+                const response = await fetch('/api/system/stop', { method: 'POST' });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('System stopped successfully!', 'success');
+                    refreshStatus();
+                } else {
+                    showAlert('Failed to stop system: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error stopping system: ' + error.message, 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            
+            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.header').nextSibling);
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        // Modal functions
+        function openTaskModal() {
+            document.getElementById('taskModal').style.display = 'block';
+        }
+
+        function closeTaskModal() {
+            document.getElementById('taskModal').style.display = 'none';
+        }
+
+        function openWorkflowModal() {
+            document.getElementById('workflowModal').style.display = 'block';
+        }
+
+        function closeWorkflowModal() {
+            document.getElementById('workflowModal').style.display = 'none';
+        }
+
+        function openLogsModal() {
+            document.getElementById('logsModal').style.display = 'block';
+            refreshLogs();
+        }
+
+        function closeLogsModal() {
+            document.getElementById('logsModal').style.display = 'none';
+        }
+
+        // Form submissions
+        document.getElementById('taskForm').onsubmit = async function(e) {
+            e.preventDefault();
+            
+            const description = document.getElementById('taskDescription').value;
+            const commands = document.getElementById('taskCommands').value
+                .split('\n')
+                .map(cmd => cmd.trim())
+                .filter(cmd => cmd);
+            const priority = parseInt(document.getElementById('taskPriority').value);
+
+            try {
+                const response = await fetch('/api/submit-task', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        description: description,
+                        commands: commands,
+                        priority: priority
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert(`Task submitted successfully! ID: ${result.task_id}`, 'success');
+                    closeTaskModal();
+                    document.getElementById('taskForm').reset();
+                    refreshStatus();
+                    loadRecentTasks();
+                } else {
+                    showAlert('Failed to submit task: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error submitting task: ' + error.message, 'error');
+            }
+        };
+
+        document.getElementById('workflowForm').onsubmit = async function(e) {
+            e.preventDefault();
+            
+            const projectName = document.getElementById('projectName').value;
+            const features = document.getElementById('features').value
+                .split('\n')
+                .map(f => f.trim())
+                .filter(f => f);
+
+            try {
+                const response = await fetch('/api/submit-workflow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_name: projectName,
+                        features: features
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert(`Workflow created successfully! ${result.task_ids.length} tasks submitted.`, 'success');
+                    closeWorkflowModal();
+                    document.getElementById('workflowForm').reset();
+                    refreshStatus();
+                    loadRecentTasks();
+                } else {
+                    showAlert('Failed to create workflow: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error creating workflow: ' + error.message, 'error');
+            }
+        };
+
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/api/logs?limit=100');
+                const logs = await response.json();
+                
+                const logContent = document.getElementById('logContent');
+                
+                if (logs.length === 0) {
+                    logContent.textContent = 'No logs available yet.';
+                    return;
+                }
+                
+                const logText = logs.map(log => 
+                    `[${log.timestamp}] ${log.level} - ${log.component} - ${log.message}${log.details ? '\n  Details: ' + log.details : ''}`
+                ).join('\n');
+                
+                logContent.textContent = logText;
+                logContent.scrollTop = 0; // Scroll to top to show newest logs
+                
+            } catch (error) {
+                document.getElementById('logContent').textContent = 'Error loading logs: ' + error.message;
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logContent').textContent = 'Logs cleared from display.';
+        }
+
+        function refreshStatus() {
+            socket.emit('request_status');
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const modals = ['taskModal', 'workflowModal', 'logsModal'];
+            modals.forEach(modalId => {
+                const modal = document.getElementById(modalId);
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        };
+
+        // Auto-refresh status every 10 seconds
+        setInterval(refreshStatus, 10000);
+
+        // Initial load
+        setTimeout(() => {
+            refreshStatus();
+            loadRecentTasks();
+        }, 1000);
+    </script>
+</body>
+</html>

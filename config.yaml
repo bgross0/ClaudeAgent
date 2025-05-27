@@ -1,0 +1,43 @@
+# Claude Code Agentic System Configuration
+
+system:
+  name: "Claude Code Agentic Development System"
+  workspace_dir: "./workspace"
+  num_workers: 3
+  log_level: "INFO"
+
+# Database configuration
+database_path: "claude_agents.db"
+
+# Worker configuration
+workers:
+  heartbeat_interval: 30
+  task_timeout: 1800  # 30 minutes
+  max_concurrent_tasks: 1
+
+# Adviser configuration
+adviser:
+  check_interval: 30
+  alert_thresholds:
+    failure_rate: 0.2
+    stuck_task_timeout: 1800
+
+# Task management
+tasks:
+  default_priority: 5
+  max_retries: 3
+  cleanup_completed_after: 86400  # 24 hours
+
+# Security settings (optional)
+security:
+  allowed_commands:
+    - "git"
+    - "npm"
+    - "python"
+    - "pip"
+    - "node"
+  restricted_paths:
+    - "/etc"
+    - "/var"
+    - "/usr/bin"
+  sandbox_mode: false
